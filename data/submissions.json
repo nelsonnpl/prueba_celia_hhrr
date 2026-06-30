@@ -1,0 +1,102 @@
+[
+  {
+    "id": "7dccd45c-d1b0-4fa1-90fa-0e944ed3b969",
+    "candidateId": "CAND-2024-001",
+    "sessionToken": null,
+    "essayResponse": "This is a test submission with more than fifty words to validate the submission endpoint correctly. The strategic plan should address market diversification across European segments while maintaining RIU brand standards and revenue optimization.",
+    "wordCount": 30,
+    "timeSpentMinutes": 5,
+    "submittedAt": "2026-06-30T21:58:27.456Z",
+    "telemetry": {
+      "tabSwitchesCount": 0,
+      "pasteAttemptsCount": 0,
+      "totalKeystrokes": 150,
+      "rightClickAttempts": 0,
+      "blockedShortcuts": 0,
+      "startTime": "2026-06-30T21:00:00Z",
+      "endTime": "2026-06-30T21:05:00Z",
+      "charCount": 245
+    },
+    "analysis": {
+      "honeypotTriggered": false,
+      "isKeystrokeAnomaly": false,
+      "isSuspicious": false,
+      "riskScore": 0
+    }
+  },
+  {
+    "id": "6066b70d-3755-4ed5-b89a-266e3f785867",
+    "candidateId": "CAND-2024-001",
+    "sessionToken": null,
+    "essayResponse": "Test submission with enough words to validate. The strategic plan should address market diversification across European segments while maintaining RIU brand standards and revenue optimization techniques for maximum profitability in the Moroccan hospitality sector.",
+    "wordCount": 30,
+    "timeSpentMinutes": 5,
+    "submittedAt": "2026-06-30T22:09:12.134952+00:00",
+    "telemetry": {
+      "tabSwitchesCount": 0,
+      "pasteAttemptsCount": 0,
+      "totalKeystrokes": 150,
+      "rightClickAttempts": 0,
+      "blockedShortcuts": 0,
+      "startTime": null,
+      "endTime": null,
+      "charCount": 264
+    },
+    "analysis": {
+      "honeypotTriggered": false,
+      "isKeystrokeAnomaly": false,
+      "isSuspicious": false,
+      "riskScore": 0
+    }
+  },
+  {
+    "id": "bd636a3d-7dd5-4c5a-b660-ab1eec1f153f",
+    "candidateId": "CAND-2024-001",
+    "sessionToken": "8486097ffeff018065042bd0ab08d1dc4b941f6f45ee8d58187e8b9585ef2669",
+    "essayResponse": "fdssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss\n\ndsfsd\nfsdfsdfsd\nf\nsdfsdffjnjewntiojnweriporjngfpoierwnjgoilfmewrlkmfglkdsmflkmnsdlkfmlkdsmfklmsdlkfmlksdmflkmsdklfmklsdnfkjbsdjkfgniowenjhfionbwergboiler\n\ndf\nsd\nf\nsdf\nfs\ndf\nsd\nf\nsdf\nse\ndgt\ner\nt\nret\nrew\nt\nrew\ntf\nwert\nwe\ntf\nrew\nt\nwre\ntfgserfbisehdfkjhsdjkfhbjisdhfijsdbhfuihdsbgfuiyhsdhifbsiduhrihweioshfoewpsodtgoikerwhiujtfrjseodbfjiswedhbdrfbhjikhweuihftujyhwerghiutfhsdjklfkjsdahrfjkgweijhriufhesuihrtuifhweuirhfuijsdhfriuhweiuhfiueshfhkjsdhfiuwhediuvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\ndrf\nsd\nr\nsd\nr\nsdt\ngs\ndrt\nsd\nr\nse\nr\nwe\nr\n\nsdr\ns\ndt\nds\ntyg\nr\nt\nert\nerw\n\ne\nre\n5r\n34\n5r\nwe\nr\nwer",
+    "wordCount": 61,
+    "timeSpentMinutes": 4,
+    "submittedAt": "2026-06-30T22:29:40.990337+00:00",
+    "telemetry": {
+      "tabSwitchesCount": 15,
+      "pasteAttemptsCount": 0,
+      "totalKeystrokes": 781,
+      "rightClickAttempts": 0,
+      "blockedShortcuts": 1,
+      "startTime": "2026-06-30T22:26:03.882Z",
+      "endTime": "2026-06-30T22:29:40.988Z",
+      "charCount": 772
+    },
+    "analysis": {
+      "honeypotTriggered": false,
+      "isKeystrokeAnomaly": false,
+      "isSuspicious": false,
+      "riskScore": 10
+    }
+  },
+  {
+    "id": "b888e085-4404-4280-b6a4-fe02c3af81da",
+    "candidateId": "CAND-2024-001",
+    "sessionToken": "905b8b69db9cce2bb14251be98750698daaeba1bc6b92ffcda6f4a1d70bc4cd8",
+    "essayResponse": "dshfdsfsdbnfosdhnfsdofnhoisdnhfoindsnf\ndsf\nds\nf\nsdf\nsd\nfds\nf\nsd\nfds\nf\ndsf\nsd\nf\nsdf\nsd\nf\nsd\nfds\ndf\nsd\nfsd\nf\ndd\nf\ndsrer\ntgfçsfdg\ner\ng\nter\ngt\ner\ng\ner\nftg\nsd\nf\nsd\nf\nse\nt\nre\nt\nr\ntre\nt\nre\nt\nrew\nt\n\nret\n\nret\n\ner\nt\ner\nte\nrt\ne\nrt\ner",
+    "wordCount": 60,
+    "timeSpentMinutes": 1,
+    "submittedAt": "2026-06-30T22:47:29.111546+00:00",
+    "telemetry": {
+      "tabSwitchesCount": 3,
+      "pasteAttemptsCount": 0,
+      "totalKeystrokes": 223,
+      "rightClickAttempts": 0,
+      "blockedShortcuts": 0,
+      "startTime": "2026-06-30T22:46:50.368Z",
+      "endTime": "2026-06-30T22:47:29.108Z",
+      "charCount": 222
+    },
+    "analysis": {
+      "honeypotTriggered": false,
+      "isKeystrokeAnomaly": false,
+      "isSuspicious": false,
+      "riskScore": 0
+    }
+  }
+]

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "CAND-2024-001",
+    "email": "maria.garcia@riu.com",
+    "name": "Maria Garcia",
+    "testCode": "RIU-PRUEBA-2024",
+    "active": true
+  },
+  {
+    "id": "CAND-2024-002",
+    "email": "jean.dupont@consulting.fr",
+    "name": "Jean Dupont",
+    "testCode": "RIU-PRUEBA-2024",
+    "active": true
+  },
+  {
+    "id": "CAND-2024-003",
+    "email": "anna.schmidt@riu.de",
+    "name": "Anna Schmidt",
+    "testCode": "RIU-PRUEBA-2024",
+    "active": true
+  }
+]
