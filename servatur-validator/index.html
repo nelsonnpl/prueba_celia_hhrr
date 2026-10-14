@@ -506,7 +506,7 @@ const CONFIG = {
   ttooEntities: ['NORDIC', 'NORDIC GARANTIA'],
   /* Sexo que NO cuenta como hu\u00e9sped en la comparaci\u00f3n (C = ni\u00f1o, I = beb\u00e9). El PMS (Pre-C.I.) solo cuenta mayores. */
   nonCountedSex: ['C', 'I'],
-  cancelled: { source: 'cancel|anul|^cxl|^can$', flags: 'i' },
+  cancelled: { source: 'cancel|anul|^cxl$|^can$|^cnl$|^cnx$', flags: 'i' },   // «Cnl» = cancelada en los Booking list
   ttooRequired: ['BOOKING', 'CHECK IN HOTEL', 'CHECK OUT HOTEL'],
   pmsRequired: ['LOCALIZADOR', 'HOTEL FRA.', 'FECHA DE ENTRADA', 'FECHA DE SALIDA', 'PRE-C.I.'],
   rowHeight: 36,
