@@ -393,7 +393,7 @@ dialog[open]{animation:dlgIn var(--t3) var(--spring)}
     <div class="alert" id="alert" role="alert" hidden></div>
     <div class="load-grid">
       <section aria-labelledby="hT">
-        <header class="lane-h"><span class="k">A</span><div><h2 id="hT">Listados del TTOO</h2><p>Booking list o Arrivals &#xb7; uno o varios</p></div><span class="ct" id="ctT"></span></header>
+        <header class="lane-h"><span class="k">A</span><div><h2 id="hT">Listados del TTOO</h2><p>Booking list, Arrivals o Jet2 &#xb7; uno o varios</p></div><span class="ct" id="ctT"></span></header>
         <ul class="files" id="listT"></ul>
         <label class="drop" id="dropT" data-kind="ttoo">
           <input class="sr" type="file" id="fileT" accept=".xlsx,.xls,.csv" multiple>
@@ -508,6 +508,8 @@ const CONFIG = {
   nonCountedSex: ['C', 'I'],
   cancelled: { source: 'cancel|anul|^cxl$|^can$|^cnl$|^cnx$', flags: 'i' },   // «Cnl» = cancelada en los Booking list
   ttooRequired: ['BOOKING', 'CHECK IN HOTEL', 'CHECK OUT HOTEL'],
+  /* Listado de Jet2: una fila por reserva, el hotel en texto ("Servatur Puerto Azul") y los pax por columnas */
+  jet2Required: ['REFERENCIA RESERVA', 'HOTEL', 'ENTRADA', 'SALIDA'],
   pmsRequired: ['LOCALIZADOR', 'HOTEL FRA.', 'FECHA DE ENTRADA', 'FECHA DE SALIDA', 'PRE-C.I.'],
   rowHeight: 36,
 };
@@ -610,9 +612,9 @@ function makeParser(XLSX, CFG, U) {
     };
   };
 
-  /* El hotel del TTOO se deduce del nombre del archivo: el m\u00e1s largo que aparezca como secuencia de palabras. */
+  /* El hotel se deduce de un texto (nombre del archivo o del hotel): el m\u00e1s largo que aparezca como secuencia de palabras. */
   function hotelFromName(name) {
-    const toks = norm(name.replace(/\.[a-z0-9]+$/i, '')).split(/[^A-Z0-9]+/).filter(Boolean);
+    const toks = norm(String(name).replace(/\.[a-z0-9]+$/i, '')).split(/[^A-Z0-9]+/).filter(Boolean);
     let best = '', bestLen = 0;
     for (const h of CFG.knownHotels) {
       const ht = norm(h).split(/[^A-Z0-9]+/).filter(Boolean);
@@ -685,6 +687,42 @@ function makeParser(XLSX, CFG, U) {
     return out;
   }
 
+  /* Jet2: casa por «Referencia reserva» y, si no, por «Referencia hotel» (algunos hoteles la usan de localizador). */
+  function parseJet2(name, size, loc) {
+    const get = getter(loc);
+    const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+    const out = {
+      name, size, format: 'jet2', ttooCode: 'JET2', formatLabel: 'Jet2',
+      sendDate: sendDateFromName(name), sendStamp: sendStampFromName(name), window: null, nameHotel: '',
+      bookings: [], cancelledKeys: [], cancelled: 0, invalid: 0, unmapped: [], persons: 0, kids: 0, infants: 0,
+    };
+    const unm = new Set();
+    for (let r = loc.hr + 1; r < loc.rows.length; r++) {
+      const row = loc.rows[r];
+      if (!row) continue;
+      const bk = clean(get(row, 'Referencia reserva'));
+      if (!bk) continue;
+      const checkin = toIso(get(row, 'Entrada')), checkout = toIso(get(row, 'Salida'));
+      if (!checkin || !checkout) { out.invalid++; continue; }
+      const hotelText = clean(get(row, 'Hotel')), hotel = hotelFromName(hotelText);
+      if (!hotel) { unm.add(hotelText || '(sin hotel)'); continue; }
+      const kids = num(get(row, 'Ni\u00f1os')), infants = num(get(row, 'Beb\u00e9s'));
+      const adults = clean(get(row, 'Adultos')) !== '' ? num(get(row, 'Adultos')) : Math.max(0, num(get(row, 'Pax total')) - kids - infants);
+      const alt = keyOf(get(row, 'Referencia hotel'));
+      out.bookings.push({
+        bk, status: '', code: '', checkin, checkout, guest: clean(get(row, 'Titular')), room: clean(get(row, 'Tipo habitaci\u00f3n')),
+        sold: toIso(get(row, 'Fecha reserva')), guests: adults, kids, infants, shares: [], altKeys: alt ? [alt] : [],
+        key: keyOf(bk), locator: bk, hotel, file: name, source: out.formatLabel,
+      });
+      out.persons += adults; out.kids += kids; out.infants += infants;
+    }
+    if (!out.bookings.length && !out.invalid && !unm.size) throw new Error('El listado de Jet2 no contiene reservas.');
+    const ins = out.bookings.map(b => b.checkin).sort();
+    if (ins.length) out.window = { from: ins[0], to: ins[ins.length - 1] };
+    out.unmapped = [...unm];
+    return out;
+  }
+
   function parsePms(name, size, loc) {
     const get = getter(loc);
     const recs = [];
@@ -718,9 +756,11 @@ function makeParser(XLSX, CFG, U) {
     const wb = XLSX.read(new Uint8Array(buffer), READ);
     const t = locate(wb, CFG.ttooRequired);
     if (t) return { kind: 'ttoo', data: parseTtoo(name, size, t) };
+    const j = locate(wb, CFG.jet2Required);
+    if (j) return { kind: 'ttoo', data: parseJet2(name, size, j) };
     const p = locate(wb, CFG.pmsRequired);
     if (p) return { kind: 'pms', data: parsePms(name, size, p) };
-    throw new Error('No lo reconozco: no es un listado del TTOO (Booking, Check in/out hotel) ni una exportaci\u00f3n del PMS (Localizador, Hotel Fra., Fecha de entrada, Pre-C.I.).');
+    throw new Error('No lo reconozco: no es un listado del TTOO (Booking, Check in/out hotel), ni de Jet2 (Referencia reserva, Hotel, Entrada, Salida), ni una exportaci\u00f3n del PMS (Localizador, Hotel Fra., Fecha de entrada, Pre-C.I.).');
   }
 
   function writeBook(sheets) {
@@ -1008,7 +1048,7 @@ function fileCard(f, isPms) {
   if (f.cancelled) warns.push(`${pl(f.cancelled, 'cancelada excluida', 'canceladas excluidas')}`);
   if (f.invalid) warns.push(`${pl(f.invalid, 'reserva con fecha no v\u00e1lida', 'reservas con fecha no v\u00e1lida')}, excluida${f.invalid > 1 ? 's' : ''}`);
   if (f.unmapped.length) warns.push(`Sin hotel asignado: ${f.unmapped.join(', ')}. A\u00f1ade su c\u00f3digo en CONFIG.hotels o revisa el nombre del archivo.`);
-  const win = f.format === 'arrivals' && f.window ? `${fmtDate(f.window.from)} \u2192 ${fmtDate(f.window.to)}` : f.sendDate ? `env\u00edo ${fmtDate(f.sendDate)}` : '';
+  const win = f.format !== 'booking' && f.window ? `${fmtDate(f.window.from)} \u2192 ${fmtDate(f.window.to)}` : f.sendDate ? `env\u00edo ${fmtDate(f.sendDate)}` : '';
   return `<li class="${cls}" data-id="${f.id}">${fi}<div>
     <div class="nm">${esc(f.name)}</div>
     <div class="mt"><span>${esc(f.formatLabel)}</span>${win ? `<span>${win}</span>` : ''}<span>${fmtSize(f.size)}</span></div>
@@ -1069,9 +1109,13 @@ function runComparison() {
   for (const b of S.bookings) {
     const hN = norm(b.hotel);
     const shared = [...(mates.get(b.key) || [])];
-    let all = live(b.key), via = '';
+    let all = live(b.key), via = '', altVia = '';
     /* Si no est\u00e1 con su localizador, el PMS puede tenerla dentro de la reserva con la que comparte habitaci\u00f3n:
        se toman las l\u00edneas de esa reserva que caen en las fechas de esta. */
+    for (const k of b.altKeys || []) {
+      if (all.length) break;
+      all = live(k); if (all.length) altVia = k;
+    }
     if (!all.length) {
       for (const k of shared) {
         const lines = live(k).filter(r => r.hotelN === hN && r.checkin < b.checkout && r.checkout > b.checkin);
@@ -1086,7 +1130,7 @@ function runComparison() {
     const base = {
       key: b.key, locator: b.locator, guest: b.guest, file: b.file, source: b.source, hotelT: b.hotel,
       checkinT: b.checkin, checkoutT: b.checkout, guestsT: b.guests, kidsT: b.kids, infantsT: b.infants,
-      roomT: b.room, soldT: b.sold, ttooStatus: b.status, p: null, diffs: [], note: sharedNote, guestsP: null,
+      roomT: b.room, soldT: b.sold, ttooStatus: b.status, p: null, diffs: [], note: [sharedNote, altVia && `En el PMS con la referencia de hotel ${altVia}`].filter(Boolean).join(' \u00b7 '), guestsP: null,
       shared, via, roomGuestsT: shared.length ? roomGuests : null,
     };
     if (!chosen.length) {
@@ -1182,7 +1226,7 @@ function countUp(el, to, dec = 0) {
    Pantalla 3 \u00b7 Resultados (hoja de c\u00e1lculo virtualizada: solo se pintan las filas visibles)
    ===================================================================== */
 const detailText = r => {
-  const extra = r.shared && r.shared.length && r.p ? ` \u00b7 ${r.note}` : '';
+  const extra = r.p && r.note ? ` \u00b7 ${r.note}` : '';
   return (r.status === 'ok' ? 'Sin diferencias' : r.diffs.length ? 'Difiere: ' + r.diffs.map(k => DIFF_LABEL[k].toLowerCase()).join(', ') : r.note) + extra;
 };
 const COLS = [
@@ -1350,7 +1394,7 @@ function fillDrawer(swap) {
   const lines = p.lines > 1 ? ` (${p.lines} l\u00edneas: ${p.lineGuests.map(v => v ?? '?').join(' + ')})` : '';
   const row = (label, t, pm, bad) => `<tr${bad ? ' class="bad"' : ''}><th scope="row">${label}</th><td>${esc(dash(t))}</td><td>${esc(dash(pm))}</td></tr>`;
   const msg = (r.status === 'ok' ? 'Coincide en hotel, fechas y n\u00famero de hu\u00e9spedes.' : r.diffs.length ? `Difiere en ${r.diffs.map(k => DIFF_LABEL[k].toLowerCase()).join(', ')}.` : r.note)
-    + (r.shared && r.shared.length && r.p ? ` ${r.note}.` : '');
+    + (r.p && r.note ? ` ${r.note}.` : '');
   const body = $('#dwBody');
   body.innerHTML = `<p class="eyebrow"><span class="st">${mk(r.status)}${STATUS[r.status].label}</span></p>
     <h2 id="dwTitle">${esc(r.locator)}</h2>
@@ -1482,6 +1526,7 @@ function openRules() {
     <li>Las reservas canceladas no se analizan.</li></ul>
     <h4>Qu\u00e9 se compara</h4><ul><li><b>Hotel</b>, <b>fecha de entrada</b>, <b>fecha de salida</b> y <b>n\u00ba de hu\u00e9spedes</b>.</li>
     <li>Hu\u00e9spedes del TTOO: personas que no son ni\u00f1os ni beb\u00e9s (sexo ${esc(CONFIG.nonCountedSex.join(', '))} excluidos), porque el PMS (<code>Pre-C.I.</code>, \u00abx/N\u00bb) solo cuenta mayores.</li>
+    <li>Jet2: una fila por reserva. Se casa por <code>Referencia reserva</code> y, si no aparece, por <code>Referencia hotel</code>; el hotel se reconoce por su nombre y los hu\u00e9spedes son los <code>Adultos</code>.</li>
     <li>Si el PMS reparte una reserva en varias l\u00edneas se acepta la suma de l\u00edneas o la l\u00ednea mayor.</li>
     <li>Habitaci\u00f3n y fecha de venta se muestran, pero no cuentan como diferencia.</li></ul>
     <h4>Estados, de m\u00e1s a menos grave</h4><ul>${ST_KEYS.map(k => `<li><span class="st">${mk(k)}<b>${STATUS[k].label}</b></span> \u2014 ${esc(STATUS[k].hint)}.</li>`).join('')}</ul>
