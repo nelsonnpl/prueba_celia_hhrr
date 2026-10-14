@@ -518,12 +518,11 @@ const STATUS = {
   hotel:   { label: 'Hotel distinto', order: 2, hint: 'Existe en el PMS, pero en otro hotel' },
   diff:    { label: 'Con diferencias', order: 3, hint: 'Mismo hotel; cambian fechas o hu\u00e9spedes' },
   out:     { label: 'Fuera de alcance', order: 4, hint: 'Entra despu\u00e9s del horizonte del PMS' },
-  solo:    { label: 'Solo en PMS', order: 5, hint: 'En el PMS, pero no en el listado del TTOO' },
   ok:      { label: 'Correcta', order: 6, hint: 'Coincide con el PMS' },
 };
 const ST_KEYS = Object.keys(STATUS);
 const BAR_ORDER = ['missing', 'hotel', 'diff', 'out', 'ok'];
-const SHADE = { missing: 'var(--s-missing)', hotel: 'var(--s-hotel)', diff: 'var(--s-diff)', out: 'var(--s-out)', solo: 'var(--s-solo)', ok: 'var(--s-ok)' };
+const SHADE = { missing: 'var(--s-missing)', hotel: 'var(--s-hotel)', diff: 'var(--s-diff)', out: 'var(--s-out)', ok: 'var(--s-ok)' };
 const DIFF_LABEL = { hotel: 'Hotel', checkin: 'Entrada', checkout: 'Salida', guests: 'Hu\u00e9spedes' };
 const FILTERS = [['issues', 'Incidencias'], ['all', 'Todas'], ...ST_KEYS.map(k => [k, STATUS[k].label])];
 
@@ -971,13 +970,12 @@ function place(rec, kind, data) {
     S.pms = rec;
   } else {
     if (wasPms) { S.pms = rec.prev || null; S.ttoo.push(rec); }
-    Object.assign(rec, data, { loading: false, kind, complete: data.format === 'arrivals' });   // un Arrivals es la lista completa de llegadas de su ventana
+    Object.assign(rec, data, { loading: false, kind });
     rec.window = data.window || { from: data.sendDate || '', to: data.bookings.map(b => b.checkin).sort().pop() || '' };
   }
   if (wasPms !== (kind === 'pms')) toast(`\u00ab${rec.name}\u00bb es ${kind === 'pms' ? 'el PMS' : 'un listado del TTOO'}: colocado en su sitio`);
 }
 
-const COMPLETE_TIP = 'Act\u00edvalo si el listado trae todas las reservas del hotel en su ventana (los Arrivals lo son). As\u00ed se avisa de las reservas que est\u00e1n en el PMS y no vienen en el listado.';
 function fileCard(f, isPms) {
   const cls = `file${f.loading ? ' loading' : ''}${f.error ? ' err' : ''}${seen.has(f.id) ? '' : ' in'}`;
   seen.add(f.id);
@@ -1000,7 +998,6 @@ function fileCard(f, isPms) {
     <div class="mt"><span><b>${esc(hotels.join(' \u00b7 ') || '\u2014')}</b></span></div>
     <div class="mt"><span><b>${nf.format(f.kept.length)}</b> ${f.kept.length === 1 ? 'reserva' : 'reservas'}</span><span>${pl(f.persons, 'hu\u00e9sped', 'hu\u00e9spedes')}${f.kids + f.infants ? ` + ${f.kids + f.infants} ni\u00f1os/beb\u00e9s` : ''}</span></div>
     ${warns.length ? `<ul class="warn">${warns.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
-    <div class="opt"><button class="switch" type="button" role="switch" aria-checked="${!!f.complete}" data-complete="${f.id}" aria-label="Tratar ${esc(f.name)} como lista completa"></button><b>Lista completa</b><span class="tip" tabindex="0" data-tip="${esc(COMPLETE_TIP)}">i</span></div>
   </div>${rm}</li>`;
 }
 
@@ -1043,11 +1040,9 @@ function aggregate(recs) {
 }
 
 function runComparison() {
-  const { index, byHotel, horizon } = S.pms;
+  const { index, horizon } = S.pms;
   S.horizon = horizon;
-  const ttooKeys = new Set(S.bookings.map(b => b.key));
   const rows = [];
-  const entitiesByFile = new Map();
 
   for (const b of S.bookings) {
     const all = (index.get(b.key) || []).filter(r => !r.cancelled);
@@ -1076,32 +1071,9 @@ function runComparison() {
       else if (p.lines > 1 && b.guests === p.guestsMax) guestsP = p.guestsMax;
       else diffs.push('guests');
     }
-    if (atHotel.length) { const s = entitiesByFile.get(b.file) || new Set(); s.add(norm(chosen[0].entity)); entitiesByFile.set(b.file, s); }
     rows.push({ ...base, status: diffs.includes('hotel') ? 'hotel' : diffs.length ? 'diff' : 'ok', p, diffs, guestsP });
   }
 
-  /* Solo en PMS: \u00fanicamente para listados marcados como completos, dentro de su ventana y de su hotel.
-     Se recorre solo el PMS de ese hotel (\u00edndice por hotel), no el PMS entero. */
-  const soloSeen = new Set();
-  for (const f of okTtoo().filter(x => x.complete && x.window && x.window.from && x.window.to)) {
-    const ents = entitiesByFile.get(f.fileName) || ENT;
-    for (const hotel of new Set(f.kept.map(b => b.hotel))) {
-      const hN = norm(hotel), groups = new Map();
-      for (const r of byHotel.get(hN) || []) {
-        if (r.cancelled || ttooKeys.has(r.key) || !ents.has(norm(r.entity)) || r.checkin < f.window.from || r.checkin > f.window.to) continue;
-        const g = groups.get(r.key); g ? g.push(r) : groups.set(r.key, [r]);
-      }
-      for (const [key, group] of groups) {
-        const sk = `${hN}|${key}`;
-        if (soloSeen.has(sk)) continue;
-        soloSeen.add(sk);
-        const p = aggregate(group);
-        rows.push({ key, locator: p.locator, guest: p.name, file: f.fileName, source: f.formatLabel, hotelT: '', checkinT: '', checkoutT: '', guestsT: null,
-          kidsT: 0, infantsT: 0, roomT: '', soldT: '', ttooStatus: '', p, diffs: [], status: 'solo', guestsP: p.guestsSum,
-          note: `En el PMS (${fmtDate(f.window.from)} \u2192 ${fmtDate(f.window.to)}) pero no en el listado` });
-      }
-    }
-  }
   rows.forEach(r => { r.sortDate = r.checkinT || (r.p && r.p.checkin) || ''; r.hotelAny = r.hotelT || (r.p && r.p.hotel) || ''; });
   rows.sort((a, b) => STATUS[a.status].order - STATUS[b.status].order || a.sortDate.localeCompare(b.sortDate) || a.locator.localeCompare(b.locator));
   rows.forEach((r, i) => { r.id = i; });
@@ -1119,20 +1091,20 @@ function render2() {
   $('#meta2').textContent = `${pl(total, 'reserva', 'reservas')} de ${pl(files.length, 'listado', 'listados')} contrastadas con ${nf.format(S.pms.rows)} filas del PMS.`;
 
   const statusRows = ST_KEYS.map((k, i) => {
-    const n = c[k] || 0, pct = k === 'solo' ? '' : total ? `${pf.format(n / total * 100)}%` : '0%';
+    const n = c[k] || 0, pct = total ? `${pf.format(n / total * 100)}%` : '0%';
     return `<li class="rise" style="--d:${i + 4}"><button class="st-row${n ? '' : ' zero'}" type="button" data-filter="${k}">
       <span><span class="st">${mk(k)}<b>${STATUS[k].label}</b></span><span class="h">${STATUS[k].hint}</span></span>
       <span class="c">${nf.format(n)}</span><span class="p">${pct}</span><span class="ar">${icon('arrow', 15)}</span></button></li>`;
   }).join('');
 
   const hotels = [...new Set(S.bookings.map(b => b.hotel))].map(h => {
-    const rs = list.filter(r => r.status !== 'solo' && r.hotelT === h), cc = countBy(rs), ev = rs.length - (cc.out || 0);
+    const rs = list.filter(r => r.hotelT === h), cc = countBy(rs), ev = rs.length - (cc.out || 0);
     const inc = (cc.missing || 0) + (cc.hotel || 0) + (cc.diff || 0);
     const mini = BAR_ORDER.filter(k => cc[k]).map(k => `<i class="${k}" style="--c:${SHADE[k]}" data-w="${(cc[k] / rs.length * 100).toFixed(2)}"></i>`).join('');
     return { h, total: rs.length, inc, rate: ev ? (cc.ok || 0) / ev * 100 : 0, mini };
   }).sort((a, b) => b.inc - a.inc || a.h.localeCompare(b.h));
 
-  const sources = [...files.map(f => `<li><span>${esc(f.name)}</span><span>${esc(f.formatLabel)} \u00b7 ${nf.format(f.kept.length)}${f.complete ? ' \u00b7 completa' : ''}</span></li>`),
+  const sources = [...files.map(f => `<li><span>${esc(f.name)}</span><span>${esc(f.formatLabel)} \u00b7 ${nf.format(f.kept.length)}</span></li>`),
     `<li><span>${esc(S.pms.name)}</span><span>PMS \u00b7 ${nf.format(S.pms.rows)} filas</span></li>`].join('');
 
   $('#status').innerHTML = `
@@ -1141,7 +1113,7 @@ function render2() {
         <p class="cap">de las reservas evaluables coinciden con el PMS \u2014 <b>${nf.format(c.ok || 0)}</b> de <b>${nf.format(evaluable)}</b>${c.out ? `, sin contar ${nf.format(c.out)} fuera de alcance` : ''}.</p></div>
       <div class="kpi small rise" style="--d:1"><span class="n" data-count="${total}">0</span><span class="l">Reservas analizadas</span></div>
       <div class="kpi small rise" style="--d:2"><span class="n" data-count="${issues}">0</span><span class="l">Con incidencia</span></div>
-      <div class="kpi small rise" style="--d:3"><span class="n" data-count="${c.solo || 0}">0</span><span class="l">Solo en PMS</span></div>
+      <div class="kpi small rise" style="--d:3"><span class="n" data-count="${c.ok || 0}">0</span><span class="l">Correctas</span></div>
     </div>
     <div class="stack" role="img" aria-label="Reparto: ${BAR_ORDER.map(k => `${STATUS[k].label} ${c[k] || 0}`).join(', ')}">${BAR_ORDER.filter(k => c[k]).map((k, i) => `<i class="${k}" style="--c:${SHADE[k]};--d:${i}" data-w="${(c[k] / total * 100).toFixed(3)}" title="${STATUS[k].label}: ${nf.format(c[k])}"></i>`).join('')}</div>
     <div class="cols2">
@@ -1151,7 +1123,7 @@ function render2() {
         ${hotels.map(r => `<tr class="hr" data-hotel="${esc(r.h)}" tabindex="0"><td title="${esc(r.h)}">${esc(r.h)}</td><td>${nf.format(r.total)}</td><td>${r.inc ? `<b>${nf.format(r.inc)}</b>` : '\u2014'}</td>
           <td><span class="pc">${pf.format(r.rate)}%</span><div class="mini">${r.mini}</div></td></tr>`).join('')}
         </tbody></table>
-        <p class="note2">${mk('out')}<span>El PMS cubre entradas hasta el <b>${fmtDate(S.horizon)}</b>. ${files.some(f => f.complete) ? '' : '\u00abSolo en PMS\u00bb est\u00e1 desactivado: ning\u00fan listado est\u00e1 marcado como completo.'}</span></p>
+        <p class="note2">${mk('out')}<span>El PMS cubre entradas hasta el <b>${fmtDate(S.horizon)}</b>.</span></p>
       </section>
     </div>
     <section class="sources rise" style="--d:8"><h3 class="sec-h"><span>Fuentes</span><span>${files.length + 1} archivos</span></h3><ul class="src-list">${sources}</ul></section>`;
@@ -1435,7 +1407,7 @@ async function exportXlsx(btn) {
       { Concepto: 'Horizonte PMS (m\u00e1xima fecha de entrada)', Valor: fmtDate(S.horizon) },
       { Concepto: 'Reservas TTOO analizadas', Valor: S.bookings.length },
       { Concepto: 'Filas le\u00eddas del PMS', Valor: S.pms.rows },
-      ...files.map(f => ({ Concepto: `Listado: ${f.formatLabel}`, Valor: `${f.name} \u00b7 ${f.kept.length} reservas${f.complete ? ' \u00b7 lista completa' : ''}` })),
+      ...files.map(f => ({ Concepto: `Listado: ${f.formatLabel}`, Valor: `${f.name} \u00b7 ${f.kept.length} reservas` })),
       ...ST_KEYS.map(k => ({ Concepto: `Total: ${STATUS[k].label}`, Valor: c[k] || 0 })),
     ];
     const sheets = [{ name: 'Resumen', rows: summary }];
@@ -1474,8 +1446,6 @@ function openRules() {
     <li>Habitaci\u00f3n y fecha de venta se muestran, pero no cuentan como diferencia.</li></ul>
     <h4>Estados, de m\u00e1s a menos grave</h4><ul>${ST_KEYS.map(k => `<li><span class="st">${mk(k)}<b>${STATUS[k].label}</b></span> \u2014 ${esc(STATUS[k].hint)}.</li>`).join('')}</ul>
     <h4>Alcance del PMS</h4><ul><li>El horizonte es la <b>m\u00e1xima fecha de entrada</b> de todo el PMS. Una reserva que no est\u00e1 y entra despu\u00e9s de esa fecha queda \u00abFuera de alcance\u00bb.</li></ul>
-    <h4>Solo en PMS</h4><ul><li>Solo para listados marcados como <b>lista completa</b> (por defecto, los Arrivals).</li>
-    <li>Reservas del PMS del mismo hotel y de las mismas entidades que casan, con entrada dentro de la ventana del listado y que no vienen en \u00e9l.</li></ul>
     <h4>Origen de los datos</h4><ul><li>El hotel del <b>Booking list</b> sale de su columna <code>Hotel code</code>; el de los <b>Arrivals</b>, del nombre del archivo.</li>
     <li>Todo se procesa en este navegador; ning\u00fan archivo se env\u00eda a ning\u00fan servidor.</li></ul>`;
   $('#rules').showModal();
@@ -1516,7 +1486,7 @@ $$('.drop').forEach(z => {
 $('#fileT').addEventListener('change', e => { const f = [...e.target.files]; e.target.value = ''; addFiles(f, 'ttoo'); });
 $('#fileP').addEventListener('change', e => { const f = [...e.target.files]; e.target.value = ''; addFiles(f, 'pms'); });
 $('#v1').addEventListener('click', e => {
-  const rm = e.target.closest('[data-remove]'), sw = e.target.closest('[data-complete]');
+  const rm = e.target.closest('[data-remove]');
   if (rm) {
     const id = rm.dataset.remove;
     rm.closest('.file').classList.add('out');
@@ -1524,9 +1494,6 @@ $('#v1').addEventListener('click', e => {
       if (S.pms && S.pms.id === id) S.pms = null; else S.ttoo = S.ttoo.filter(f => f.id !== id);
       invalidate(); recalc(); render1();
     }, 200);
-  } else if (sw) {
-    const f = S.ttoo.find(x => x.id === sw.dataset.complete);
-    if (f) { f.complete = !f.complete; sw.setAttribute('aria-checked', String(f.complete)); invalidate(); }
   }
 });
 $('#analyze').addEventListener('click', analyze);
