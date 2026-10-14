@@ -641,12 +641,25 @@ function makeParser(XLSX, CFG, U) {
           checkin: toIso(get(row, 'Check in hotel')), checkout: toIso(get(row, 'Check out hotel')),
           guest: [clean(get(row, 'Last name')), clean(get(row, 'First name'))].filter(Boolean).join(' '),
           room: clean(get(row, 'Room/s')), sold: toIso(get(row, 'Booked date')),
-          guests: 0, kids: 0, infants: 0,
+          guests: 0, kids: 0, infants: 0, shares: new Set(), seen: new Set(),
         };
         if (!ttooCode) ttooCode = clean(get(row, 'Code'));
         raw.push(cur);
       }
-      if (cur && person) {
+      if (!cur) continue;
+      /* Una fila sin localizador pero con fechas propias es otra habitaci\u00f3n o un tramo de la estancia
+         (p. ej. la parte que se comparte con otra reserva): la estancia va de la primera entrada a la \u00faltima salida. */
+      if (!bk) {
+        const ci = toIso(get(row, 'Check in hotel')), co = toIso(get(row, 'Check out hotel'));
+        if (ci && (!cur.checkin || ci < cur.checkin)) cur.checkin = ci;
+        if (co && co > cur.checkout) cur.checkout = co;
+      }
+      const share = keyOf(get(row, 'Share room with'));
+      if (share && share !== keyOf(cur.bk)) cur.shares.add(share);
+      /* Cada persona cuenta una vez aunque reaparezca en otro tramo */
+      const who = norm([get(row, 'Last name'), get(row, 'First name')].join(' '));
+      if (person && !cur.seen.has(who)) {
+        cur.seen.add(who);
         const sex = norm(get(row, 'Sex'));
         if (sex === 'C') cur.kids++; else if (sex === 'I') cur.infants++;
         if (!noCount.has(sex)) cur.guests++;
@@ -664,7 +677,8 @@ function makeParser(XLSX, CFG, U) {
       if (!b.checkin || !b.checkout) { out.invalid++; continue; }
       const hotel = (hasHotelCode && CFG.hotels[b.code]) || nameHotel;
       if (!hotel) { unm.add(b.code || '(sin hotel en el nombre del archivo)'); continue; }
-      out.bookings.push({ ...b, key: keyOf(b.bk), locator: b.bk, hotel, file: name, source: out.formatLabel });
+      const { seen, ...rest } = b;
+      out.bookings.push({ ...rest, shares: [...b.shares], key: keyOf(b.bk), locator: b.bk, hotel, file: name, source: out.formatLabel });
       out.persons += b.guests; out.kids += b.kids; out.infants += b.infants;
     }
     out.unmapped = [...unm];
@@ -1046,20 +1060,38 @@ function runComparison() {
   const { index, horizon } = S.pms;
   S.horizon = horizon;
   const rows = [];
+  /* Habitaciones compartidas: el enlace puede venir en cualquiera de las dos reservas */
+  const byKey = new Map(S.bookings.map(b => [b.key, b]));
+  const mates = new Map(S.bookings.map(b => [b.key, new Set(b.shares || [])]));
+  for (const b of S.bookings) for (const k of b.shares || []) { if (!mates.has(k)) mates.set(k, new Set()); mates.get(k).add(b.key); }
+  const live = k => (index.get(k) || []).filter(r => !r.cancelled);
 
   for (const b of S.bookings) {
-    const all = (index.get(b.key) || []).filter(r => !r.cancelled);
     const hN = norm(b.hotel);
+    const shared = [...(mates.get(b.key) || [])];
+    let all = live(b.key), via = '';
+    /* Si no est\u00e1 con su localizador, el PMS puede tenerla dentro de la reserva con la que comparte habitaci\u00f3n:
+       se toman las l\u00edneas de esa reserva que caen en las fechas de esta. */
+    if (!all.length) {
+      for (const k of shared) {
+        const lines = live(k).filter(r => r.hotelN === hN && r.checkin < b.checkout && r.checkout > b.checkin);
+        if (lines.length) { all = lines; via = lines[0].locator; break; }
+      }
+    }
     const atHotel = all.filter(r => r.hotelN === hN);
     const chosen = atHotel.length ? atHotel : all;
+    /* En la habitaci\u00f3n compartida el PMS cuenta a todos sus ocupantes */
+    const roomGuests = b.guests + shared.reduce((n, k) => n + (byKey.get(k) ? byKey.get(k).guests : 0), 0);
+    const sharedNote = shared.length ? `Habitaci\u00f3n compartida con ${shared.join(', ')}${via ? ` \u00b7 en el PMS va dentro de la reserva ${via}` : ''}` : '';
     const base = {
       key: b.key, locator: b.locator, guest: b.guest, file: b.file, source: b.source, hotelT: b.hotel,
       checkinT: b.checkin, checkoutT: b.checkout, guestsT: b.guests, kidsT: b.kids, infantsT: b.infants,
-      roomT: b.room, soldT: b.sold, ttooStatus: b.status, p: null, diffs: [], note: '', guestsP: null,
+      roomT: b.room, soldT: b.sold, ttooStatus: b.status, p: null, diffs: [], note: sharedNote, guestsP: null,
+      shared, via, roomGuestsT: shared.length ? roomGuests : null,
     };
     if (!chosen.length) {
       const out = b.checkin > horizon;
-      rows.push({ ...base, status: out ? 'out' : 'missing', note: out ? `Entrada posterior al horizonte del PMS (${fmtDate(horizon)})` : 'No existe en el PMS' });
+      rows.push({ ...base, status: out ? 'out' : 'missing', note: (out ? `Entrada posterior al horizonte del PMS (${fmtDate(horizon)})` : 'No existe en el PMS') + (shared.length ? ` (ni en ${shared.join(', ')}, con la que comparte habitaci\u00f3n)` : '') });
       continue;
     }
     const p = aggregate(chosen);
@@ -1070,8 +1102,9 @@ function runComparison() {
     /* El PMS puede repartir una reserva en varias l\u00edneas: vale la suma de l\u00edneas o la l\u00ednea mayor */
     let guestsP = p.guestsSum;
     if (p.guestsSum != null) {
-      if (b.guests === p.guestsSum) guestsP = p.guestsSum;
-      else if (p.lines > 1 && b.guests === p.guestsMax) guestsP = p.guestsMax;
+      const ok = [b.guests, ...(shared.length ? [roomGuests] : [])];
+      if (ok.includes(p.guestsSum)) guestsP = p.guestsSum;
+      else if (p.lines > 1 && ok.includes(p.guestsMax)) guestsP = p.guestsMax;
       else diffs.push('guests');
     }
     rows.push({ ...base, status: diffs.includes('hotel') ? 'hotel' : diffs.length ? 'diff' : 'ok', p, diffs, guestsP });
@@ -1148,7 +1181,10 @@ function countUp(el, to, dec = 0) {
 /* =====================================================================
    Pantalla 3 \u00b7 Resultados (hoja de c\u00e1lculo virtualizada: solo se pintan las filas visibles)
    ===================================================================== */
-const detailText = r => r.status === 'ok' ? 'Sin diferencias' : r.diffs.length ? 'Difiere: ' + r.diffs.map(k => DIFF_LABEL[k].toLowerCase()).join(', ') : r.note;
+const detailText = r => {
+  const extra = r.shared && r.shared.length && r.p ? ` \u00b7 ${r.note}` : '';
+  return (r.status === 'ok' ? 'Sin diferencias' : r.diffs.length ? 'Difiere: ' + r.diffs.map(k => DIFF_LABEL[k].toLowerCase()).join(', ') : r.note) + extra;
+};
 const COLS = [
   { k: 'n', label: '#', w: 54, cls: 'rn', fz: 1 },
   { k: 'status', label: 'Estado', w: 158, fz: 1, sv: r => STATUS[r.status].order, html: r => stLabel(r.status) },
@@ -1310,10 +1346,11 @@ function closeDrawer() {
 function fillDrawer(swap) {
   const r = V.rows[S.cursor]; if (!r) return;
   const p = r.p || {}, d = r.diffs;
-  const gT = r.guestsT == null ? '' : `${r.guestsT}${r.kidsT ? ` + ${r.kidsT} ni\u00f1o${r.kidsT > 1 ? 's' : ''}` : ''}${r.infantsT ? ` + ${r.infantsT} beb\u00e9${r.infantsT > 1 ? 's' : ''}` : ''}`;
+  const gT = r.guestsT == null ? '' : `${r.guestsT}${r.kidsT ? ` + ${r.kidsT} ni\u00f1o${r.kidsT > 1 ? 's' : ''}` : ''}${r.infantsT ? ` + ${r.infantsT} beb\u00e9${r.infantsT > 1 ? 's' : ''}` : ''}${r.roomGuestsT != null ? ` (${r.roomGuestsT} en la habitaci\u00f3n)` : ''}`;
   const lines = p.lines > 1 ? ` (${p.lines} l\u00edneas: ${p.lineGuests.map(v => v ?? '?').join(' + ')})` : '';
   const row = (label, t, pm, bad) => `<tr${bad ? ' class="bad"' : ''}><th scope="row">${label}</th><td>${esc(dash(t))}</td><td>${esc(dash(pm))}</td></tr>`;
-  const msg = r.status === 'ok' ? 'Coincide en hotel, fechas y n\u00famero de hu\u00e9spedes.' : r.diffs.length ? `Difiere en ${r.diffs.map(k => DIFF_LABEL[k].toLowerCase()).join(', ')}.` : r.note;
+  const msg = (r.status === 'ok' ? 'Coincide en hotel, fechas y n\u00famero de hu\u00e9spedes.' : r.diffs.length ? `Difiere en ${r.diffs.map(k => DIFF_LABEL[k].toLowerCase()).join(', ')}.` : r.note)
+    + (r.shared && r.shared.length && r.p ? ` ${r.note}.` : '');
   const body = $('#dwBody');
   body.innerHTML = `<p class="eyebrow"><span class="st">${mk(r.status)}${STATUS[r.status].label}</span></p>
     <h2 id="dwTitle">${esc(r.locator)}</h2>
