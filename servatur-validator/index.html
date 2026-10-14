@@ -560,14 +560,15 @@ function makeUtils() {
   }
   /* "\u2026Booking list - Caybeach Meloneras - 2026-10-13_06.02.xlsx" \u2192 2026-10-13 */
   function sendDateFromName(name) { const r = stem(name).match(/(\d{4})-(\d{2})-(\d{2})/); return r ? `${r[1]}-${r[2]}-${r[3]}` : ''; }
-  return { norm, clean, keyOf, toIso, parseGuests, windowFromName, sendDateFromName };
+  function sendStampFromName(name) { const r = stem(name).match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2})[.:h](\d{2}))?/); return r ? `${r[1]}-${r[2]}-${r[3]} ${(r[4] || '0').padStart(2, '0')}:${r[5] || '00'}` : ''; }
+  return { norm, clean, keyOf, toIso, parseGuests, windowFromName, sendDateFromName, sendStampFromName };
 }
 
 /* =====================================================================
    Lectura y escritura de Excel (se ejecuta en Web Workers; si no es posible, en la p\u00e1gina)
    ===================================================================== */
 function makeParser(XLSX, CFG, U) {
-  const { norm, clean, keyOf, toIso, parseGuests, windowFromName, sendDateFromName } = U;
+  const { norm, clean, keyOf, toIso, parseGuests, windowFromName, sendDateFromName, sendStampFromName } = U;
   const cancelledRe = new RegExp(CFG.cancelled.source, CFG.cancelled.flags);
   const noCount = new Set(CFG.nonCountedSex.map(norm));
   /* Solo valores en bruto: sin texto formateado, estilos ni f\u00f3rmulas (es lo que m\u00e1s tiempo consume al leer). */
@@ -654,12 +655,12 @@ function makeParser(XLSX, CFG, U) {
     if (!raw.length) throw new Error('El listado no contiene reservas.');
     const out = {
       name, size, format, ttooCode, formatLabel: format === 'booking' ? 'Booking list' : `Arrivals${ttooCode ? ' \u00b7 ' + ttooCode : ''}`,
-      sendDate: sendDateFromName(name), window: windowFromName(name), nameHotel,
-      bookings: [], cancelled: 0, invalid: 0, unmapped: [], persons: 0, kids: 0, infants: 0,
+      sendDate: sendDateFromName(name), sendStamp: sendStampFromName(name), window: windowFromName(name), nameHotel,
+      bookings: [], cancelledKeys: [], cancelled: 0, invalid: 0, unmapped: [], persons: 0, kids: 0, infants: 0,
     };
     const unm = new Set();
     for (const b of raw) {
-      if (cancelledRe.test(b.status)) { out.cancelled++; continue; }
+      if (cancelledRe.test(b.status)) { out.cancelled++; out.cancelledKeys.push(keyOf(b.bk)); continue; }
       if (!b.checkin || !b.checkout) { out.invalid++; continue; }
       const hotel = (hasHotelCode && CFG.hotels[b.code]) || nameHotel;
       if (!hotel) { unm.add(b.code || '(sin hotel en el nombre del archivo)'); continue; }
@@ -909,17 +910,20 @@ const okTtoo = () => S.ttoo.filter(f => !f.error && !f.loading);
 const loading = () => S.ttoo.some(f => f.loading) || (S.pms && S.pms.loading);
 const pmsReady = () => S.pms && !S.pms.loading && !S.pms.error;
 
+/* Si una reserva llega en varios envíos, manda la del envío más reciente (fecha y hora del nombre del
+   archivo). Una cancelación posterior anula la versión anterior. Las reservas que solo vienen en un envío
+   antiguo se siguen comprobando. */
 function recalc() {
-  const keys = new Set();
-  S.bookings = [];
-  for (const f of S.ttoo) {
-    f.dupes = 0; f.kept = [];
-    if (f.error || f.loading) continue;
-    for (const b of f.bookings) {
-      if (keys.has(b.key)) { f.dupes++; continue; }
-      keys.add(b.key); f.kept.push(b); S.bookings.push(b);
-    }
+  const files = S.ttoo.filter(f => !f.error && !f.loading);
+  S.ttoo.forEach(f => { f.kept = []; });
+  const ordered = files.map((f, i) => ({ f, i })).sort((a, b) => (a.f.sendStamp || '').localeCompare(b.f.sendStamp || '') || a.i - b.i);
+  const latest = new Map();
+  for (const { f } of ordered) {
+    for (const k of f.cancelledKeys || []) latest.delete(k);
+    for (const b of f.bookings) latest.set(b.key, { b, f });
   }
+  S.bookings = [];
+  for (const { b, f } of latest.values()) { f.kept.push(b); S.bookings.push(b); }
 }
 function invalidate() { if (S.results) { S.results = null; renderNav(); } }
 
@@ -989,7 +993,6 @@ function fileCard(f, isPms) {
   const warns = [];
   if (f.cancelled) warns.push(`${pl(f.cancelled, 'cancelada excluida', 'canceladas excluidas')}`);
   if (f.invalid) warns.push(`${pl(f.invalid, 'reserva con fecha no v\u00e1lida', 'reservas con fecha no v\u00e1lida')}, excluida${f.invalid > 1 ? 's' : ''}`);
-  if (f.dupes) warns.push(`${pl(f.dupes, 'duplicada', 'duplicadas')} de otro listado, ignorada${f.dupes > 1 ? 's' : ''}`);
   if (f.unmapped.length) warns.push(`Sin hotel asignado: ${f.unmapped.join(', ')}. A\u00f1ade su c\u00f3digo en CONFIG.hotels o revisa el nombre del archivo.`);
   const win = f.format === 'arrivals' && f.window ? `${fmtDate(f.window.from)} \u2192 ${fmtDate(f.window.to)}` : f.sendDate ? `env\u00edo ${fmtDate(f.sendDate)}` : '';
   return `<li class="${cls}" data-id="${f.id}">${fi}<div>
