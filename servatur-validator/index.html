@@ -286,10 +286,12 @@ svg{display:block;flex:none}
 /* ---------- Panel de detalle ---------- */
 .drawer{position:fixed;inset:0;z-index:50;pointer-events:none}
 .drawer .scrim{position:absolute;inset:0;background:var(--scrim);opacity:0;transition:opacity var(--t3) var(--ease)}
-.drawer .panel{position:absolute;top:0;right:0;bottom:0;width:min(520px,100vw);background:var(--bg);border-left:1px solid var(--line);box-shadow:var(--shadow-lg);transform:translateX(102%);transition:transform var(--t3) var(--spring);display:flex;flex-direction:column}
+/* Cerrado: el panel sale del todo (con su sombra) y queda oculto al acabar la transici\u00f3n, sin botones enfocables.
+   Deja siempre una franja de fondo para cerrar tocando fuera en pantallas estrechas. */
+.drawer .panel{position:absolute;top:0;right:0;bottom:0;width:min(520px,calc(100% - 48px));background:var(--bg);border-left:1px solid var(--line);box-shadow:var(--shadow-lg);transform:translateX(calc(100% + 96px));visibility:hidden;transition:transform var(--t3) var(--spring),visibility 0s linear var(--t3);display:flex;flex-direction:column}
 .drawer.open{pointer-events:auto}
 .drawer.open .scrim{opacity:1}
-.drawer.open .panel{transform:none}
+.drawer.open .panel{transform:none;visibility:visible;transition:transform var(--t3) var(--spring),visibility 0s}
 .dw-top{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:16px 20px 16px 28px;border-bottom:1px solid var(--line)}
 .dw-top .pos{font-family:var(--mono);font-size:12px;color:var(--muted)}
 .dw-top .nav2{display:flex;gap:2px}
@@ -501,7 +503,7 @@ const CONFIG = {
   knownHotels: ['PUERTO AZUL', 'WAIKIKI', 'TERRAZAMAR', 'DON MIGUEL', 'ALTAMAR', 'MONTE FELIZ', 'RIOSOL', 'PLAYA BONITA',
     'ARGUINEGUIN PARK', 'EDEN', 'ISORA SUITES', 'GREEN BEACH', 'MONTEBELLO', 'HARTAGUNA', 'ALAMEDA JANDIA', 'CARIBE',
     'CASABLANCA', 'ALTAMADORES', 'CASTILLO DE SOL', 'NACHOSOL', 'CAYBEACH CALETA', 'CAYBEACH SUN', 'CAYBEACH PRINCESS',
-    'CAYBEACH MELONERAS', 'DO\u00d1A ELVIRA', 'JB', 'CAYBEACH PAPAGAYOS', 'PUERTO PLATA'],
+    'CAYBEACH MELONERAS', 'DO\u00d1A ELVIRA', 'JB', 'CAYBEACH PAPAGAYOS', 'PUERTO PLATA', 'LAS BUGANVILLAS'],
   /* Entidades del PMS del canal TTOO. Se usan solo si no se puede deducir de las reservas que s\u00ed casan. */
   ttooEntities: ['NORDIC', 'NORDIC GARANTIA'],
   /* Sexo que NO cuenta como hu\u00e9sped en la comparaci\u00f3n (C = ni\u00f1o, I = beb\u00e9). El PMS (Pre-C.I.) solo cuenta mayores. */
