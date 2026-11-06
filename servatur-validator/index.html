@@ -138,6 +138,10 @@ svg{display:block;flex:none}
 .file .mt b{font-weight:600;color:var(--ink)}
 .file .warn{margin:10px 0 0;padding:0;list-style:none;display:grid;gap:3px;font-size:12px;color:var(--muted)}
 .file .warn li::before{content:"\2014 ";margin-right:8px;color:var(--faint)}
+.file .warn li.good,.file .warn li.bad{display:flex;gap:6px;align-items:baseline}
+.file .warn li.good::before,.file .warn li.bad::before{content:none}
+.file .warn li.good svg,.file .warn li.bad svg{flex:none;position:relative;top:2px}
+.file .warn li.bad{color:var(--ink);font-weight:500}
 .file .er{margin-top:6px;font-size:12.5px;color:var(--ink)}
 .file .opt{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:12.5px;color:var(--muted)}
 .file .opt b{color:var(--ink);font-weight:500}
@@ -802,6 +806,24 @@ function makeParser(XLSX, CFG, U) {
     }
     try { return new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(bytes)); } catch (e) { return t; }
   }
+  /* Compara lo le\u00eddo con los totales que imprime el propio PDF. Cada n\u00famero se asocia a la \u00faltima columna de la cabecera
+     que empieza a su izquierda (los t\u00edtulos van alineados a la izquierda y las cifras a la derecha).
+     Devuelve null si el PDF no trae totales. */
+  function checkTotals(head, line, read) {
+    if (!head || !line) return null;
+    const cols = head.map(i => ({ x: i.x, k: norm(i.s).replace(/[^A-Z]/g, '') })).sort((a, b) => a.x - b.x);
+    const want = { BOOKING: 'booking', BOOKINGS: 'booking', ADULT: 'adult', ADULTS: 'adult', CHILD: 'child', CHILDREN: 'child', ROOMS: 'rooms' };
+    const expected = {};
+    for (const it of line) {
+      if (!/^\d+$/.test(clean(it.s))) continue;
+      const near = cols.filter(c => c.x <= it.x + 1).pop();
+      if (!near) continue;
+      if (want[near.k] && !(want[near.k] in expected)) expected[want[near.k]] = +clean(it.s);
+    }
+    if (!Object.keys(expected).length) return null;
+    const diffs = Object.keys(expected).filter(k => expected[k] !== read[k]);
+    return { expected, read, ok: !diffs.length, diffs };
+  }
   function parseRooming(name, size, lines) {
     const text = l => fixText(l.map(i => i.s).join(' ').replace(/\s+/g, ' ').trim());
     const title = lines.length ? text(lines[0]) : '';
@@ -810,10 +832,14 @@ function makeParser(XLSX, CFG, U) {
     const out = newOut(name, size, 'rooming', 'Rooming list', '');
     out.nameHotel = nameHotel;
     const unm = new Set(), byKey = new Map();
-    let block = [];
+    let block = [], roomLines = 0, sumHead = null, sumLine = null;
     for (const l of lines) {
       const t = text(l), m = t.match(ROOMING_LINE);
+      /* Resumen final del PDF: cabecera \u00abHotel Booking Adult Child Pax Rooms\u2026\u00bb y fila \u00abGrand Total\u00bb (o \u00abTotal\u00bb) */
+      if (!m && /\bbooking\b/i.test(t) && /\badult/i.test(t) && /\bchild/i.test(t) && !/\d/.test(t)) { sumHead = l; sumLine = null; }
+      if (!m && sumHead && /^(grand\s+)?total\b/i.test(t) && (!sumLine || /^grand/i.test(t))) sumLine = l;
       if (!m) { block.push(l); continue; }
+      roomLines++;
       const [, cli, ref, inline, adults, kids, ci, co] = m;
       if (!client && cli.trim()) client = cli.trim();
       const blockText = block.map(text).join(' ') + ' ' + t;
@@ -830,7 +856,8 @@ function makeParser(XLSX, CFG, U) {
         key: keyOf(ref), locator: ref, hotel: nameHotel, file: name, source: '',
       });
     }
-    if (!out.bookings.length && !out.invalid && !unm.size) throw new Error('No encuentro reservas en el PDF: no parece un rooming list (Ref., Adult, Child, Check In, Check Out).');
+    if (!out.bookings.length && !out.invalid && !unm.size) throw new Error('No encuentro reservas en el PDF: no parece un rooming list (Ref., Adult, Child, Check In, Check Out). Si es un PDF escaneado (una imagen), p\u00eddelo en Excel o en PDF con texto.');
+    out.check = checkTotals(sumHead, sumLine, { booking: out.bookings.length + out.invalid, adult: out.persons, child: out.kids, rooms: roomLines });
     out.ttooCode = client;
     out.formatLabel = client ? `Rooming list \u00b7 ${client}` : 'Rooming list';
     out.bookings.forEach(b => { b.source = out.formatLabel; });
@@ -1212,14 +1239,25 @@ function fileCard(f, isPms) {
   if (f.cancelled) warns.push(`${pl(f.cancelled, 'cancelada excluida', 'canceladas excluidas')}`);
   if (f.invalid) warns.push(`${pl(f.invalid, 'reserva con fecha no v\u00e1lida', 'reservas con fecha no v\u00e1lida')}, excluida${f.invalid > 1 ? 's' : ''}`);
   if (f.unmapped.length) warns.push(`Sin hotel asignado: ${f.unmapped.join(', ')}. A\u00f1ade su c\u00f3digo en CONFIG.hotels o revisa el nombre del archivo.`);
+  const check = totalsNote(f);
   const win = f.format !== 'booking' && f.window ? `${fmtDate(f.window.from)} \u2192 ${fmtDate(f.window.to)}` : f.sendDate ? `env\u00edo ${fmtDate(f.sendDate)}` : '';
   return `<li class="${cls}" data-id="${f.id}">${fi}<div>
     <div class="nm">${esc(f.name)}</div>
     <div class="mt"><span>${esc(f.formatLabel)}</span>${win ? `<span>${win}</span>` : ''}<span>${fmtSize(f.size)}</span></div>
     <div class="mt"><span><b>${esc(hotels.join(' \u00b7 ') || '\u2014')}</b></span></div>
     <div class="mt"><span><b>${nf.format(f.kept.length)}</b> ${f.kept.length === 1 ? 'reserva' : 'reservas'}</span><span>${pl(f.persons, 'hu\u00e9sped', 'hu\u00e9spedes')}${f.kids + f.infants ? ` + ${f.kids + f.infants} ni\u00f1os/beb\u00e9s` : ''}</span></div>
-    ${warns.length ? `<ul class="warn">${warns.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+    ${warns.length || check ? `<ul class="warn">${check}${warns.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
   </div>${rm}</li>`;
+}
+/* Rooming list en PDF: \u00bfcuadra lo le\u00eddo con los totales del propio PDF? */
+const TOTAL_LABEL = { booking: ['reserva', 'reservas'], adult: ['adulto', 'adultos'], child: ['ni\u00f1o', 'ni\u00f1os'], rooms: ['habitaci\u00f3n', 'habitaciones'] };
+function totalsNote(f) {
+  if (f.format !== 'rooming') return '';
+  const c = f.check;
+  if (!c) return `<li class="bad">${icon('alert', 13)}El PDF no trae totales: no se puede comprobar que se hayan le\u00eddo todas las reservas.</li>`;
+  const say = k => pl(c.expected[k], ...TOTAL_LABEL[k]);
+  if (c.ok) return `<li class="good">${icon('check', 13, 2)}Cuadra con los totales del PDF: ${Object.keys(c.expected).map(say).join(', ')}.</li>`;
+  return `<li class="bad">${icon('alert', 13)}No cuadra con los totales del PDF: ${c.diffs.map(k => `${nf.format(c.read[k])} de ${say(k)}`).join(', ')}. Revisa el PDF: puede que haya cambiado su formato.</li>`;
 }
 
 function render1() {
